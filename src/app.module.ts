@@ -22,6 +22,7 @@ import { ModerationModule } from './modules/moderation/moderation.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OrdersCoreModule } from './modules/orders/orders-core.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { RoutingModule } from './modules/routing/routing.controller';
 import { SettingsModule } from './modules/settings/settings.service';
 import { StoresModule } from './modules/stores/stores.module';
 
@@ -49,6 +50,7 @@ import { StoresModule } from './modules/stores/stores.module';
     CouriersModule,
     ModerationModule,
     AdminModule,
+    RoutingModule,
     EventsHttpModule,
     HealthModule,
   ],

@@ -174,6 +174,18 @@ O entregador escolhe ficar online uma vez; a escolha fica salva (`courier_profil
 localização. Se o sinal cair e a presença expirar, a próxima localização o coloca online de novo.
 Ele só sai quando escolhe ficar offline (ou quando a moderação bloqueia a conta).
 
+## Rotas
+
+`GET /routes?from=lat,lng&to=lat,lng&profile=driving|cycling|walking` devolve o melhor caminho
+pelas ruas (`coordinates` em `[lat, lng]`, `distanceKm`, `durationMin`). O site e o app desenham
+essa linha (animada) do entregador até a loja ou a cliente e mostram a previsão de chegada.
+
+- Provedor por variável: `ROUTING_PROVIDER=osrm` (padrão) com `ROUTING_URL`, ou `mapbox` com
+  `MAPBOX_TOKEN`. O OSRM público (`router.project-osrm.org`) é só para testes: em produção use um
+  OSRM próprio (imagem `osrm/osrm-backend` com o mapa do Brasil do Geofabrik) ou o Mapbox.
+- Rotas ficam 10 min em cache no Redis (pontos arredondados em ~11 m).
+- Se o provedor falhar, a resposta vem em linha reta com tempo estimado (`source: "straight"`).
+
 ## Recuperação de senha
 
 1. `POST /auth/forgot-password { email }` responde sempre `202` com a mesma mensagem, exista a conta

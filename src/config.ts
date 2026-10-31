@@ -43,6 +43,18 @@ export const config = {
   /** Entregador sem mandar localização por este tempo sai do mapa */
   presenceTtlSec: num('COURIER_PRESENCE_TTL_SEC', 60),
   /**
+   * Rotas (melhor caminho nas ruas): osrm | mapbox | none.
+   * O servidor público do OSRM serve para testes; em produção, use um OSRM próprio
+   * (ROUTING_URL) ou Mapbox (ROUTING_PROVIDER=mapbox + MAPBOX_TOKEN). Se o serviço falhar,
+   * a API devolve uma linha reta com tempo estimado, sem quebrar a tela.
+   */
+  routing: {
+    provider: env('ROUTING_PROVIDER', 'osrm') as 'osrm' | 'mapbox' | 'none',
+    url: env('ROUTING_URL', 'https://router.project-osrm.org'),
+    mapboxToken: env('MAPBOX_TOKEN', ''),
+    timeoutMs: num('ROUTING_TIMEOUT_MS', 4000),
+  },
+  /**
    * E-mail (recuperação de senha e avisos de segurança): log | resend | smtp.
    * log só escreve no console. resend usa a API do Resend (RESEND_API_KEY). smtp serve para
    * qualquer provedor com SMTP (SES, SendGrid, Postmark, Brevo, Mailpit no desenvolvimento).

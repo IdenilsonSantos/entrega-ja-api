@@ -339,6 +339,11 @@ await http('PUT', '/admin/settings', A, { commissionPercent: 12 });
 ok((await get('/admin/overview', O)).status === 403, 'lojista não acessa o admin');
 
 // ─────────────────────────────────────────────────────────────
+section('Rotas');
+const route = await get('/routes?from=-23.5579,-46.663&to=-23.5551,-46.6527', C);
+ok(route.status === 200 && route.data.coordinates.length >= 2 && route.data.durationMin > 0, `rota entre dois pontos (${route.data.source}, ${route.data.coordinates.length} pontos, ${route.data.durationMin} min)`);
+ok((await get('/routes?from=-23.5579,-46.663&to=x', C)).status === 400, 'ponto inválido → 400');
+
 section('Push');
 const key = await get('/push/vapid-key', null);
 ok(key.data.publicKey?.length > 40, 'chave pública VAPID disponível');
