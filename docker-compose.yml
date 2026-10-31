@@ -1,0 +1,61 @@
+# Backend completo: Postgres, Redis, migrations + seed, API e worker.
+#   docker compose up --build
+#   API em http://localhost:3000/api  (o site roda no projeto entrega-ja-web)
+# Mais réplicas: docker compose up -d --scale api=3 --scale worker=2 (coloque um balanceador na frente)
+
+x-env: &env
+  DATABASE_URL: postgres://delivery:delivery@postgres:5432/entregaja
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: ${JWT_SECRET:-dev-secret-troque-em-producao}
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+  APP_URL: ${APP_URL:-http://localhost:5173}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:contato@entregaja.dev}
+  EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: delivery, POSTGRES_PASSWORD: delivery, POSTGRES_DB: entregaja }
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ['5432:5432']
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -U delivery'], interval: 3s, retries: 20 }
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes: [redisdata:/data]
+    ports: ['6379:6379']
+    healthcheck: { test: ['CMD', 'redis-cli', 'ping'], interval: 3s, retries: 20 }
+
+  # migrations + contas de demonstração, uma vez antes da API (idempotente)
+  setup:
+    build: .
+    command: ['node', 'dist/seed.js']
+    environment:
+      <<: *env
+      SEED_DEMO_HISTORY: ${SEED_DEMO_HISTORY:-true}
+    depends_on: { postgres: { condition: service_healthy } }
+
+  api:
+    build: .
+    environment: { <<: *env, APP_ROLE: api }
+    ports: ['3000:3000']
+    volumes: [uploads:/data/uploads]
+    healthcheck: { test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health'], interval: 10s, retries: 5 }
+    depends_on:
+      setup: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: .
+    environment: { <<: *env, APP_ROLE: worker }
+    depends_on:
+      setup: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
