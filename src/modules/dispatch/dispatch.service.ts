@@ -89,14 +89,24 @@ export class DispatchService {
       ? await this.ds.getRepository(User).find({ select: { id: true }, where: { id: In(candidates.map((c) => c.id)), role: Role.COURIER, status: UserStatus.ACTIVE } })
       : [];
     const ok = new Set(active.map((a) => a.id));
-    const pick = candidates.find((c) => ok.has(c.id));
+    const ttl = config.dispatch.offerTtlSec;
 
+    // Reserva o entregador antes de criar a oferta (SET NX): várias buscas rodam em paralelo
+    // e, sem isso, a mesma pessoa receberia ofertas de pedidos diferentes ao mesmo tempo.
+    let pick: (typeof candidates)[number] | undefined;
+    for (const c of candidates.filter((x) => ok.has(x.id))) {
+      if (await this.redis.set(K.holding(c.id), orderId, 'EX', ttl + 5, 'NX')) {
+        pick = c;
+        break;
+      }
+    }
     if (!pick) return this.retryLater(order);
 
-    const ttl = config.dispatch.offerTtlSec;
     const claimed = await this.redis.set(K.offer(orderId), pick.id, 'EX', ttl + 5, 'NX');
-    if (!claimed) return 'offer-open';
-    await this.redis.set(K.holding(pick.id), orderId, 'EX', ttl + 5);
+    if (!claimed) {
+      await this.redis.del(K.holding(pick.id));
+      return 'offer-open';
+    }
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
     const offer = {
       orderId,

@@ -226,6 +226,23 @@ ok((await get(`/orders/${o3.id}`, C)).data.courier?.id === c2.user.id, 'ao ficar
 await post(`/admin/orders/${o3.id}/cancel`, A, { reason: 'Limpeza do teste' });
 
 // ─────────────────────────────────────────────────────────────
+section('Uma oferta por vez');
+{
+  // dois pedidos ficam prontos juntos e só há um entregador livre: ele recebe uma oferta, não duas
+  const solo = await login('entregador3@demo.com');
+  await post('/notifications/read', solo.token, {});
+  await post('/courier/presence', solo.token, { online: true, lat: -23.5579, lng: -46.663 });
+  const a1 = (await post('/orders', C, orderBody)).data;
+  const a2 = (await post('/orders', C, orderBody)).data;
+  await Promise.all([post(`/merchant/orders/${a1.id}/accept`, O), post(`/merchant/orders/${a2.id}/accept`, O)]);
+  await Promise.all([post(`/merchant/orders/${a1.id}/ready`, O), post(`/merchant/orders/${a2.id}/ready`, O)]);
+  await sleep(2500);
+  const offers = (await get('/notifications?unread=true', solo.token)).data.items.filter((n) => n.type === 'offer.new');
+  ok(offers.length === 1, `com dois pedidos prontos, o entregador recebe uma oferta por vez (${offers.length})`);
+  await post('/courier/presence', solo.token, { online: false });
+  for (const o of [a1, a2]) await post(`/admin/orders/${o.id}/cancel`, A, { reason: 'Limpeza do teste de ofertas' });
+}
+
 section('Equipe da loja e permissões');
 const attEdit = await post(`/merchant/stores/${burger.id}/products`, AT, { name: 'X', priceCents: 100 });
 ok(attEdit.status === 403, 'atendente não cria produto');
