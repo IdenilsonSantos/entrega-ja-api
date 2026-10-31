@@ -45,6 +45,13 @@ export class CourierProfile {
   @Column({ type: 'varchar', length: 120, nullable: true })
   pixKey: string | null;
 
+  /**
+   * O entregador quer ficar online. Fica salvo: ao entrar de novo, reabrir o app ou voltar
+   * depois de uma queda de internet, ele volta online sozinho, até escolher ficar offline.
+   */
+  @Column({ default: false })
+  wantsOnline: boolean;
+
   @Column({ type: 'timestamptz', nullable: true })
   approvedAt: Date | null;
 

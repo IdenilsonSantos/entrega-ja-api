@@ -135,7 +135,10 @@ export class AdminService {
     // bloquear derruba as sessões abertas
     await this.ds.getRepository(User).update(id, { status, statusReason: reason, ...(status === UserStatus.BLOCKED && { tokenVersion: () => '"tokenVersion" + 1' }) });
     if (status === UserStatus.ACTIVE && u.role === Role.COURIER) await this.ds.getRepository(CourierProfile).update({ userId: id }, { approvedAt: new Date() });
-    if (status !== UserStatus.ACTIVE && u.role === Role.COURIER) await this.presence.offline(id);
+    if (status !== UserStatus.ACTIVE && u.role === Role.COURIER) {
+      await this.presence.offline(id);
+      await this.ds.getRepository(CourierProfile).update({ userId: id }, { wantsOnline: false });
+    }
     await invalidateAuth(this.redis, id);
     await this.audit.record({ actorId: admin.id, action, targetType: 'USER', targetId: id, targetName: u.name, reason });
     return u;

@@ -105,8 +105,10 @@ export class CourierController {
   @Get('status')
   async status(@CurrentUser() u: AuthUser) {
     const pending = u.status !== UserStatus.ACTIVE;
+    const profile = await this.profiles().findOneByOrFail({ userId: u.id });
     const [online, offer, active] = pending ? [false, null, []] : await Promise.all([this.presence.isOnline(u.id), this.dispatch.currentOffer(u.id), this.orders.courierActive(u.id)]);
-    return { approved: !pending, online, offer, active };
+    // wantsOnline: o app liga sozinho ao abrir (só falta mandar a localização)
+    return { approved: !pending, online, wantsOnline: !pending && profile.wantsOnline, offer, active };
   }
 
   @Post('presence')
@@ -117,11 +119,13 @@ export class CourierController {
       const p = await this.profiles().findOneByOrFail({ userId: u.id });
       if (this.missing(p).length) throw badRequest('Complete seu perfil (veículo, documentos e Pix) para ficar online');
       await this.presence.online(u.id, dto.lat, dto.lng);
+      if (!p.wantsOnline) await this.profiles().update({ userId: u.id }, { wantsOnline: true });
       await this.events.toAdmins('fleet.location', { courierId: u.id, name: u.name, lat: dto.lat, lng: dto.lng, online: true }, { ephemeral: true });
     } else {
       const offer = await this.dispatch.currentOffer(u.id);
       if (offer) await this.dispatch.decline(u.id, offer.orderId);
       await this.presence.offline(u.id);
+      await this.profiles().update({ userId: u.id }, { wantsOnline: false });
       await this.events.toAdmins('fleet.location', { courierId: u.id, online: false }, { ephemeral: true });
     }
     return { online: dto.online };
@@ -131,8 +135,14 @@ export class CourierController {
   @Post('location')
   @HttpCode(200)
   async location(@CurrentUser() u: AuthUser, @Body() dto: LocationDto) {
-    const online = await this.presence.move(u.id, dto.lat, dto.lng);
-    if (!online) return { online: false };
+    let online = await this.presence.move(u.id, dto.lat, dto.lng);
+    if (!online) {
+      // caiu por falta de sinal (presença expirou) mas não escolheu sair: volta sozinho
+      const p = await this.profiles().findOneBy({ userId: u.id });
+      if (!p?.wantsOnline) return { online: false };
+      await this.presence.online(u.id, dto.lat, dto.lng);
+      online = true;
+    }
     const active = await this.ds.getRepository(Order).find({ select: { id: true, customerId: true, status: true }, where: { courierId: u.id, status: In([OrderStatus.READY, OrderStatus.PICKED_UP]) } });
     const pos = { courierId: u.id, lat: dto.lat, lng: dto.lng, heading: dto.heading ?? null, at: new Date().toISOString() };
     await Promise.all([

@@ -156,6 +156,13 @@ lojas fechadas vão para o fim da lista. A regra fica em `stores/opening-hours.t
 5. O admin pode atribuir (ou trocar) o entregador a qualquer momento antes da retirada:
    `GET /admin/orders/:id/couriers` lista todos os aprovados, com online, ocupado e distância.
 
+## Online do entregador
+
+O entregador escolhe ficar online uma vez; a escolha fica salva (`courier_profiles.wantsOnline`).
+`GET /courier/status` devolve `wantsOnline: true` e o app liga sozinho ao abrir, só mandando a
+localização. Se o sinal cair e a presença expirar, a próxima localização o coloca online de novo.
+Ele só sai quando escolhe ficar offline (ou quando a moderação bloqueia a conta).
+
 ## Recuperação de senha
 
 1. `POST /auth/forgot-password { email }` responde sempre `202` com a mesma mensagem, exista a conta

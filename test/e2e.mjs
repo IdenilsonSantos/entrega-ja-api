@@ -121,6 +121,8 @@ await sleep(400);
 // entregador fica online perto da loja antes do pedido ficar pronto
 const online = await post('/courier/presence', c1.token, { online: true, lat: -23.5579, lng: -46.663 });
 ok(online.status === 200, 'entregador 1 fica online', online.data);
+const relog = await login('entregador1@demo.com');
+ok((await get('/courier/status', relog.token)).data.wantsOnline === true, 'online fica salvo: ao entrar de novo, o app já sabe que deve ligar sozinho');
 
 const storeOrders = await get(`/merchant/stores/${burger.id}/orders?scope=active`, AT);
 ok(storeOrders.data.items.some((o) => o.id === order.id && o.customer.name === 'Carla Cliente' && o.deliveryCode === undefined), 'atendente vê o pedido com dados da cliente e sem o código');
@@ -156,6 +158,17 @@ ok((await get(`/orders/${order.id}/tracking`, C)).data.courier?.lat !== undefine
 ok(await until(() => custSse.has('courier.location', (d) => d.orderId === order.id), 3000), 'posição chega em tempo real para a cliente');
 
 // ─────────────────────────────────────────────────────────────
+{
+  // simula queda de sinal: a presença expira no Redis, mas ele não escolheu sair
+  const { execSync } = await import('node:child_process');
+  try {
+    execSync(`redis-cli del courier:alive:${c1.user.id}`);
+    const back = await post('/courier/location', c1.token, { lat: -23.5575, lng: -46.6625 });
+    ok(back.data.online === true, 'depois de uma queda de sinal, ele volta online sozinho na próxima localização');
+  } catch {
+    console.log('  (sem redis-cli: pulei o teste de queda de sinal)');
+  }
+}
 section('Retirada, entrega com código e avaliação');
 const pick = await post(`/courier/orders/${order.id}/pickup`, c1.token);
 ok(pick.data.status === 'PICKED_UP', 'entregador retira', pick.data);
@@ -179,6 +192,8 @@ ok(earn.data.todayCount >= 1 && earn.data.today > 0, 'ganhos do entregador atual
 // ─────────────────────────────────────────────────────────────
 section('Atribuição manual pelo admin');
 await post('/courier/presence', c1.token, { online: false });
+ok((await get('/courier/status', c1.token)).data.wantsOnline === false, 'ao escolher ficar offline, a preferência é salva');
+ok((await post('/courier/location', c1.token, { lat: -23.5575, lng: -46.6625 })).data.online === false, 'offline por escolha não volta sozinho com a localização');
 const o2 = (await post('/orders', C, orderBody)).data;
 await post(`/merchant/orders/${o2.id}/accept`, O);
 await post(`/merchant/orders/${o2.id}/ready`, O);
