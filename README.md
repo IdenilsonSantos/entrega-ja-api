@@ -47,7 +47,7 @@ Contas de demonstração (senha `123456`):
 npm run build && npm run test:unit   # regras puras (horário de funcionamento)
 
 # ponta a ponta: API com ofertas curtas e e-mail indo para o Mailpit (docker compose up -d mailpit)
-DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3 \
+DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3 PREP_MINUTE_MS=200 \
   MAIL_PROVIDER=smtp SMTP_URL=smtp://localhost:1025 npm start
 API=http://localhost:3000/api npm run test:e2e
 ```
@@ -144,6 +144,17 @@ A loja recebe pedidos quando **o botão está ligado e está dentro do horário*
 deixa o botão ligado e a loja abre e fecha sozinha; desligar o botão pausa no meio do expediente.
 A vitrine devolve `openNow`, `opensAt` (fechada pelo horário) e `closesAt` (aberta pelo horário);
 lojas fechadas vão para o fim da lista. A regra fica em `stores/opening-hours.ts`.
+
+## Automação da loja
+
+Cada loja pode ligar, em **Loja → Automação** (`PATCH /merchant/stores/:id`):
+
+- `autoAccept`: pedido novo entra direto em `PREPARING` (a equipe recebe o aviso do mesmo jeito).
+- `autoReady`: ao aceitar, um trabalho na fila `orders` é agendado para o fim do `prepTimeMin`;
+  se ninguém marcou pronto antes, o pedido vira `READY` e a busca do entregador começa.
+
+Retirada e entrega sempre andam sozinhas (quem confirma é o entregador). Na linha do tempo,
+o que foi automático aparece sem autor e com a nota "Automático".
 
 ## Despacho
 

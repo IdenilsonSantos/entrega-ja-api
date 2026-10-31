@@ -116,7 +116,7 @@ export class DispatchService {
     await this.events.toUsers([pick.id], 'offer.new', offer);
     await this.notifications.notify(
       [pick.id],
-      { type: 'offer.new', title: 'Nova corrida', body: `${order.store.name} → ${order.deliveryAddress} · R$ ${(order.courierFeeCents / 100).toFixed(2).replace('.', ',')}`, link: '/entregador' },
+      { type: 'offer.new', title: 'Nova corrida', body: `${order.store.name} → ${order.deliveryAddress}, R$ ${(order.courierFeeCents / 100).toFixed(2).replace('.', ',')}`, link: '/entregador' },
       { urgent: true },
     );
     await this.queue.add('expire', { kind: 'expire', orderId, courierId: pick.id }, { delay: ttl * 1000, jobId: `expire-${orderId}-${pick.id}-${Date.now()}` });

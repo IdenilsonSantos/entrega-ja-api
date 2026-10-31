@@ -70,6 +70,14 @@ export class Store {
   @Column({ type: 'double precision', default: 6 })
   deliveryRadiusKm: number;
 
+  /** Pedido novo já entra em preparo, sem esperar alguém clicar em aceitar */
+  @Column({ default: false })
+  autoAccept: boolean;
+
+  /** Passado o tempo de preparo, o pedido vira PRONTO sozinho (e a busca do entregador começa) */
+  @Column({ default: false })
+  autoReady: boolean;
+
   /** Botão de abrir e fechar do painel. Com horário definido, funciona como pausa (ver opening-hours.ts) */
   @Column({ default: false })
   isOpen: boolean;

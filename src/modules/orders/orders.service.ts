@@ -1,4 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { Queue } from 'bullmq';
+import { config } from '../../config';
+import { ORDERS_QUEUE } from '../../infra/queue/queues';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomInt } from 'crypto';
 import { DataSource, In } from 'typeorm';
@@ -31,6 +34,7 @@ export class OrdersService {
     private readonly presence: PresenceService,
     private readonly access: StoreAccessService,
     private readonly settings: SettingsService,
+    @Inject(ORDERS_QUEUE) private readonly ordersQueue: Queue,
   ) {}
 
   // ───────────── cliente
@@ -71,9 +75,11 @@ export class OrdersService {
     );
     await this.core.timeline(order.id, 'created', customer.id);
     const full = await this.core.load(order.id);
+    const itemsText = `${items.length} ${items.length > 1 ? 'itens' : 'item'}, ${money(totalCents)}`;
     await this.core.broadcast(full, {
-      store: { type: 'order.new', title: `Novo pedido #${full.number}`, body: `${customer.name} · ${items.length} ${items.length > 1 ? 'itens' : 'item'} · ${money(totalCents)}` },
+      store: { type: 'order.new', title: `Novo pedido #${full.number}`, body: store.autoAccept ? `${customer.name}, ${itemsText}. Já foi para o preparo.` : `${customer.name}, ${itemsText}` },
     });
+    if (store.autoAccept) return viewOrder(await this.doAccept(order.id, null), 'customer');
     return viewOrder(full, 'customer');
   }
 
@@ -205,11 +211,30 @@ export class OrdersService {
 
   async accept(user: AuthUser, id: string) {
     await this.storeOrder(user.id, id);
+    return viewOrder(await this.doAccept(id, user.id), 'store');
+  }
+
+  /** Aceite pela loja ou automático (actorId null) */
+  private async doAccept(id: string, actorId: string | null) {
     await this.core.transition(id, [OrderStatus.PENDING], { status: OrderStatus.PREPARING, acceptedAt: new Date() });
-    await this.core.timeline(id, 'accepted', user.id);
+    await this.core.timeline(id, 'accepted', actorId, actorId ? null : 'Automático');
     const o = await this.core.load(id);
     await this.core.broadcast(o, { customer: { type: 'order.accepted', title: 'Pedido aceito', body: `${o.store.name} está preparando seu pedido (cerca de ${o.store.prepTimeMin} min).` } });
-    return viewOrder(o, 'store');
+    // pronto automático: agenda para quando o tempo de preparo terminar
+    if (o.store.autoReady) {
+      await this.ordersQueue.add('autoReady', { orderId: id }, { delay: o.store.prepTimeMin * config.prepMinuteMs, jobId: `ready-${id}` });
+    }
+    return o;
+  }
+
+  /** Executado pela fila: se ninguém marcou pronto antes, marca agora */
+  async autoReady(id: string) {
+    try {
+      await this.doReady(id, null);
+      return 'ready';
+    } catch {
+      return 'skipped'; // já estava pronto, cancelado ou entregue
+    }
   }
 
   async reject(user: AuthUser, id: string, reason: string) {
@@ -224,8 +249,12 @@ export class OrdersService {
   /** Comida pronta: só agora a busca por entregador começa */
   async ready(user: AuthUser, id: string) {
     await this.storeOrder(user.id, id);
+    return viewOrder(await this.doReady(id, user.id), 'store');
+  }
+
+  private async doReady(id: string, actorId: string | null) {
     await this.core.transition(id, [OrderStatus.PREPARING], { status: OrderStatus.READY, readyAt: new Date() });
-    await this.core.timeline(id, 'ready', user.id);
+    await this.core.timeline(id, 'ready', actorId, actorId ? null : 'Automático, pelo tempo de preparo');
     const o = await this.core.load(id);
     if (!o.courierId) await this.dispatch.start(id);
     await this.core.broadcast(o, {
@@ -234,7 +263,7 @@ export class OrdersService {
         : { type: 'order.ready', title: 'Pedido pronto', body: 'Estamos chamando um entregador.' },
       courier: { type: 'order.ready', title: `Pedido #${o.number} pronto`, body: `Pode retirar em ${o.store.name}.`, urgent: true },
     });
-    return viewOrder(o, 'store');
+    return o;
   }
 
   async cancelByStore(user: AuthUser, id: string, reason: string) {

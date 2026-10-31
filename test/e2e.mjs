@@ -1,7 +1,7 @@
 /**
  * Teste de ponta a ponta contra a API rodando com o seed de demonstração.
  *   API=http://localhost:3000/api node test/e2e.mjs
- * Para não esperar muito, suba a API com DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3.
+ * Para não esperar muito, suba a API com DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3 PREP_MINUTE_MS=200.
  * O teste muda o banco (cria pedidos, convites, bloqueios): rode num banco de teste.
  * Os e-mails são lidos no Mailpit: suba a API com MAIL_PROVIDER=smtp SMTP_URL=smtp://localhost:1025
  * (o docker-compose já traz o Mailpit; a caixa de entrada fica em http://localhost:8025).
@@ -264,6 +264,20 @@ ok(stats.data.delivered >= 1 && stats.data.daily.length >= 14, 'relatório da lo
 ok((await get(`/merchant/stores/${burger.id}/stats`, AT)).status === 403, 'atendente não vê relatório');
 
 // ─────────────────────────────────────────────────────────────
+section('Automação do kanban');
+await http('PATCH', `/merchant/stores/${burger.id}`, O, { autoAccept: true, autoReady: true, prepTimeMin: 5 });
+const auto = (await post('/orders', C, orderBody)).data;
+ok(auto.status === 'PREPARING', 'com aceite automático, o pedido já nasce em preparo', auto.status);
+const autoReady = await until(async () => (await get(`/orders/${auto.id}`, C)).data.status === 'READY', 8000);
+ok(!!autoReady, 'passado o tempo de preparo, vira pronto sozinho (rode a API com PREP_MINUTE_MS=200)');
+const autoTl = (await get(`/merchant/orders/${auto.id}`, O)).data.timeline;
+ok(autoTl.some((e) => e.type === 'accepted' && e.note === 'Automático') && autoTl.some((e) => e.type === 'ready' && e.actorId === null), 'linha do tempo marca o que foi automático');
+await post(`/admin/orders/${auto.id}/cancel`, A, { reason: 'Limpeza do teste de automação' });
+await http('PATCH', `/merchant/stores/${burger.id}`, O, { autoAccept: false, autoReady: false, prepTimeMin: 25 });
+const manual = (await post('/orders', C, orderBody)).data;
+ok(manual.status === 'PENDING', 'sem automação, volta a esperar o aceite');
+await post(`/orders/${manual.id}/cancel`, C);
+
 section('Perfil e veículo do entregador');
 const prof = await get('/courier/profile', c3.token);
 ok(prof.data.vehicleType === 'BICYCLE' && prof.data.missing.length === 0, 'perfil completo da bicicleta');
@@ -365,7 +379,7 @@ section('Saúde');
 const health = await get('/health', null);
 ok(health.status === 200 && health.data.status === 'ok' && health.data.database && health.data.redis, 'API pronta: banco e Redis no ar', health.data);
 ok(health.data.workers?.alive >= 1, 'worker vivo (batimento no Redis)', health.data.workers);
-ok(['dispatch', 'push', 'mail'].every((q) => typeof health.data.queues?.[q]?.waiting === 'number'), 'tamanho das filas', health.data.queues);
+ok(['dispatch', 'push', 'orders', 'mail'].every((q) => typeof health.data.queues?.[q]?.waiting === 'number'), 'tamanho das filas', health.data.queues);
 ok((await get('/health/live', null)).status === 200, 'liveness responde');
 
 // ─────────────────────────────────────────────────────────────

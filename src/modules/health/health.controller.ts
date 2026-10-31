@@ -8,7 +8,7 @@ import { Public } from '../../common/auth';
 import { SkipRateLimit } from '../../common/rate-limit';
 import { config, runsWorkers } from '../../config';
 import { EventsService } from '../../infra/events/events.service';
-import { DISPATCH_QUEUE, MAIL_QUEUE, PUSH_QUEUE } from '../../infra/queue/queues';
+import { DISPATCH_QUEUE, MAIL_QUEUE, ORDERS_QUEUE, PUSH_QUEUE } from '../../infra/queue/queues';
 import { REDIS } from '../../infra/redis/redis.module';
 
 /** Workers marcam presença aqui a cada 10 s; quem some por 30 s é dado como parado */
@@ -52,9 +52,10 @@ export class HealthController {
     private readonly events: EventsService,
     @Inject(DISPATCH_QUEUE) dispatch: Queue,
     @Inject(PUSH_QUEUE) push: Queue,
+    @Inject(ORDERS_QUEUE) orders: Queue,
     @Inject(MAIL_QUEUE) mail: Queue,
   ) {
-    this.queues = [['dispatch', dispatch], ['push', push], ['mail', mail]];
+    this.queues = [['dispatch', dispatch], ['push', push], ['orders', orders], ['mail', mail]];
   }
 
   @Public()

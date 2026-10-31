@@ -38,6 +38,8 @@ export const config = {
     /** Depois de tantas rodadas sem entregador, o admin é avisado (a busca continua) */
     alertAfterAttempts: num('DISPATCH_ALERT_AFTER', 8),
   },
+  /** Duração de um "minuto" do tempo de preparo (só os testes encurtam) */
+  prepMinuteMs: num('PREP_MINUTE_MS', 60_000),
   /** Entregador sem mandar localização por este tempo sai do mapa */
   presenceTtlSec: num('COURIER_PRESENCE_TTL_SEC', 60),
   /**

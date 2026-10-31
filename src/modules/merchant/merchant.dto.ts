@@ -42,6 +42,8 @@ export class UpdateStoreDto {
   @IsOptional() @IsInt() @Min(0) @Max(100000) minOrderCents?: number;
   @IsOptional() @IsInt() @Min(5) @Max(180) prepTimeMin?: number;
   @IsOptional() @IsNumber() @Min(1) @Max(20) deliveryRadiusKm?: number;
+  @IsOptional() @IsBoolean() autoAccept?: boolean;
+  @IsOptional() @IsBoolean() autoReady?: boolean;
   /** null tira o horário (volta a valer só o botão) */
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsArray() @ArrayMaxSize(28) @ValidateNested({ each: true }) @Type(() => OpeningRangeDto)
   openingHours?: OpeningRangeDto[] | null;
