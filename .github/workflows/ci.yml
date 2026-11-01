@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: delivery, POSTGRES_PASSWORD: delivery, POSTGRES_DB: entregaja }
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U delivery" --health-interval 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 3s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ['1025:1025', '8025:8025']
+
+    env:
+      DATABASE_URL: postgres://delivery:delivery@localhost:5432/entregaja
+      REDIS_URL: redis://localhost:6379
+      # ofertas e preparo curtos para o teste não demorar
+      DISPATCH_OFFER_TTL_SEC: 6
+      DISPATCH_RETRY_DELAY_MS: 1500
+      DISPATCH_ALERT_AFTER: 3
+      PREP_MINUTE_MS: 200
+      # sem chamar o OSRM público no CI
+      ROUTING_PROVIDER: none
+      MAIL_PROVIDER: smtp
+      SMTP_URL: smtp://localhost:1025
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      # o e2e usa o redis-cli para simular a queda de sinal do entregador
+      - run: sudo apt-get install -y --no-install-recommends redis-tools
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:unit
+      - name: Migrations e dados de demonstração
+        run: node dist/seed.js
+      - name: Sobe a API
+        run: |
+          node dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf localhost:3000/api/health && exit 0; sleep 1; done
+          cat api.log; exit 1
+      - name: Teste de ponta a ponta
+        run: npm run test:e2e
+        env: { API: 'http://localhost:3000/api' }
+      - name: Log da API
+        if: failure()
+        run: cat api.log

@@ -57,6 +57,9 @@ a equipe e as permissões, o perfil do entregador, a moderação, o push, o hor�
 a saúde, o limite de requisições e a recuperação de senha (lendo o e-mail no Mailpit). Ele altera
 o banco e usa os limites de login: rode num banco e num Redis de teste.
 
+No GitHub, o workflow `CI` roda o build, os testes de unidade e o ponta a ponta com Postgres,
+Redis e Mailpit a cada push e pull request.
+
 ## Organização
 
 ```
