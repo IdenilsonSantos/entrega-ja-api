@@ -40,6 +40,29 @@ export const config = {
   },
   /** Entregador sem mandar localização por este tempo sai do mapa */
   presenceTtlSec: num('COURIER_PRESENCE_TTL_SEC', 60),
+  /**
+   * E-mail (recuperação de senha e avisos de segurança): log | resend | smtp.
+   * log só escreve no console. resend usa a API do Resend (RESEND_API_KEY). smtp serve para
+   * qualquer provedor com SMTP (SES, SendGrid, Postmark, Brevo, Mailpit no desenvolvimento).
+   */
+  mail: {
+    provider: env('MAIL_PROVIDER', 'log') as 'log' | 'resend' | 'smtp',
+    from: env('MAIL_FROM', 'Entrega Já <nao-responda@entregaja.dev>'),
+    resendApiKey: env('RESEND_API_KEY', ''),
+    resendUrl: env('RESEND_API_URL', 'https://api.resend.com'),
+    /** smtp://usuario:senha@host:587 ou smtps://usuario:senha@host:465 */
+    smtpUrl: env('SMTP_URL', ''),
+  },
+  /** Validade do link de "esqueci minha senha" */
+  passwordResetTtlMin: num('PASSWORD_RESET_TTL_MIN', 60),
+  /**
+   * Limite de requisições por IP, contado no Redis (vale para todas as réplicas).
+   * As rotas de login, cadastro e recuperação de senha têm limites próprios, mais curtos.
+   */
+  rateLimit: {
+    enabled: env('RATE_LIMIT_ENABLED', 'true') === 'true',
+    perMinute: num('RATE_LIMIT_PER_MIN', 600),
+  },
   push: {
     vapidPublicKey: env('VAPID_PUBLIC_KEY', ''),
     vapidPrivateKey: env('VAPID_PRIVATE_KEY', ''),

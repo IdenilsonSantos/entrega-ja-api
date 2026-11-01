@@ -1,7 +1,8 @@
 # Entrega Já · API
 
 Backend da plataforma de delivery: pedidos, despacho automático de entregadores, tempo real,
-notificações (central, web push e push no celular), lojas com equipe e moderação.
+notificações (central, web push e push no celular), lojas com equipe, recuperação de senha por
+e-mail, limite de requisições e moderação.
 
 **Stack:** NestJS 11 · TypeORM · PostgreSQL 16 · Redis 7 (GEO, pub/sub, Streams) · BullMQ · SSE
 
@@ -9,11 +10,12 @@ Projetos relacionados: `entrega-ja-web` (site) e `entrega-ja-app` (app do entreg
 
 ## Rodar
 
-Com Docker (Postgres, Redis, migrations, seed, API e worker):
+Com Docker (Postgres, Redis, Mailpit, migrations, seed, API e worker):
 
 ```bash
 docker compose up --build
 # API em http://localhost:3000/api
+# E-mails enviados (recuperação de senha) em http://localhost:8025
 ```
 
 Sem Docker (Postgres e Redis locais):
@@ -42,27 +44,29 @@ Contas de demonstração (senha `123456`):
 ## Testes
 
 ```bash
-# API rodando com ofertas curtas para o teste não demorar
-DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3 npm start
+# ponta a ponta: API com ofertas curtas e e-mail indo para o Mailpit (docker compose up -d mailpit)
+DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3 \
+  MAIL_PROVIDER=smtp SMTP_URL=smtp://localhost:1025 npm start
 API=http://localhost:3000/api npm run test:e2e
 ```
 
 O teste (`test/e2e.mjs`) cobre ponta a ponta o pedido com despacho, a atribuição manual,
-a equipe e as permissões, o perfil do entregador, a moderação e o push. Ele altera o banco:
-use um banco de teste.
+a equipe e as permissões, o perfil do entregador, a moderação, o push, a saúde, o limite de requisições e a recuperação de senha (lendo o e-mail no Mailpit). Ele altera
+o banco e usa os limites de login: rode num banco e num Redis de teste.
 
 ## Organização
 
 ```
 src/
   main.ts, app.module.ts, config.ts, seed.ts
-  common/          auth (guard, @Roles, @Public), paginação por cursor, erros, geo
+  common/          auth (guard, @Roles, @Public), limite de requisições, paginação por cursor, erros, geo
   infra/
     database/      data-source, entidades, migrations
     redis/         conexões
     queue/         filas BullMQ (dispatch, push)
     events/        tempo real: SSE + Redis Streams/pub-sub
     storage/       fotos (sharp → WebP)
+    mail/          e-mail pela fila (log, Resend ou SMTP)
   modules/
     auth/          cadastro, login, minha conta, senha, foto
     users/         entidade de conta e papéis
@@ -131,6 +135,56 @@ PENDING ─loja aceita→ PREPARING ─loja marca pronto→ READY ─retira→ P
 5. O admin pode atribuir (ou trocar) o entregador a qualquer momento antes da retirada:
    `GET /admin/orders/:id/couriers` lista todos os aprovados, com online, ocupado e distância.
 
+## Recuperação de senha
+
+1. `POST /auth/forgot-password { email }` responde sempre `202` com a mesma mensagem, exista a conta
+   ou não. Se existir (e não estiver bloqueada), um link `APP_URL/redefinir-senha/<token>` vai por e-mail.
+2. O token só aparece no e-mail; no Redis fica o hash dele, com validade de `PASSWORD_RESET_TTL_MIN`
+   (60 min). Pedir de novo invalida o link anterior.
+3. `GET /auth/reset-password/:token` confere o link e devolve o e-mail mascarado (`cl•••••@demo.com`).
+4. `POST /auth/reset-password { token, password }` troca a senha, derruba todas as sessões, já devolve
+   uma sessão nova e manda um aviso de "senha alterada". O link vale uma vez só.
+
+## E-mail
+
+Os e-mails entram na fila `mail` e o worker envia (até 5 tentativas com espera crescente).
+O provedor é escolhido por variável, sem mudar código:
+
+| `MAIL_PROVIDER` | Uso | Variáveis |
+|---|---|---|
+| `log` (padrão) | só escreve no console | |
+| `resend` | API do Resend (desenvolvimento) | `RESEND_API_KEY` |
+| `smtp` | qualquer provedor com SMTP: SES, SendGrid, Postmark, Brevo (produção); Mailpit (local e CI) | `SMTP_URL` |
+
+`MAIL_FROM` define o remetente (o domínio precisa estar verificado no provedor).
+
+## Limite de requisições
+
+Guard global com janela fixa no Redis, então o limite vale somado entre as réplicas. Passou do
+limite: `429` com `Retry-After` e a mensagem "Muitas tentativas. Tente de novo em X min".
+
+| Rota | Limite |
+|---|---|
+| Todas | `RATE_LIMIT_PER_MIN` (600) por IP por minuto |
+| `POST /auth/login` | 10 por conta e 50 por IP a cada 15 min (força bruta) |
+| `POST /auth/register` | 10 por IP por hora |
+| `POST /auth/forgot-password` | 3 por e-mail por hora e 10 por IP a cada 15 min |
+| `/auth/reset-password` | 20 por IP a cada 15 min |
+
+`/health` fica fora. Se o Redis cair, as requisições passam (melhor que derrubar a API).
+`RATE_LIMIT_ENABLED=false` desliga tudo.
+
+## Saúde
+
+| Rota | Para que serve |
+|---|---|
+| `GET /health/live` | o processo responde (liveness); não olha dependências, para não reiniciar à toa |
+| `GET /health` | pronto para atender (readiness, usado no deploy): `503` se o banco ou o Redis cair |
+
+`/health` também mostra os workers vivos (`workers.alive`, por batimento no Redis a cada 10 s) e o
+tamanho de cada fila (`queues`). Worker parado não tira a API do ar, mas aparece como `alive: 0` e as
+filas acumulam: vale um alerta no monitoramento.
+
 ## Notificações
 
 Cada aviso (`NotificationsService.notify`):
@@ -164,7 +218,7 @@ Todas sob `/api`. Listas usam paginação por cursor: `?limit=20&cursor=…` →
 
 | Área | Rotas |
 |---|---|
-| Conta | `POST /auth/register`, `POST /auth/login`, `GET/PATCH /me`, `POST /me/password`, `POST /me/avatar` |
+| Conta | `POST /auth/register`, `POST /auth/login`, `POST /auth/forgot-password`, `GET /auth/reset-password/:token`, `POST /auth/reset-password`, `GET/PATCH /me`, `POST /me/password`, `POST /me/avatar` |
 | Vitrine | `GET /stores?lat&lng&q&category`, `GET /stores/categories`, `GET /stores/:id` |
 | Endereços | `GET/POST /addresses`, `PUT/DELETE /addresses/:id` |
 | Pedidos (cliente) | `POST /orders`, `GET /orders?scope=active\|history`, `GET /orders/:id`, `GET /orders/:id/tracking`, `POST /orders/:id/cancel`, `POST /orders/:id/rate` |
@@ -176,7 +230,7 @@ Todas sob `/api`. Listas usam paginação por cursor: `?limit=20&cursor=…` →
 | Notificações | `GET /notifications?unread`, `GET /notifications/unread-count`, `POST /notifications/read`, `GET /push/vapid-key`, `POST/DELETE /push/subscriptions`, `POST /push/devices`, `DELETE /push/devices/:token`, `POST /push/test` |
 | Denúncias | `POST /reports` |
 | Admin | `GET /admin/overview`, `GET /admin/fleet`, `GET /admin/approvals`, `GET /admin/users`, `GET /admin/users/:id`, `POST /admin/users/:id/approve\|request-changes\|block\|unblock`, `GET /admin/stores`, `GET /admin/stores/:id`, `POST /admin/stores/:id/approve\|suspend\|reactivate`, `POST /admin/products/:id/remove\|restore`, `GET /admin/orders`, `GET /admin/orders/:id`, `POST /admin/orders/:id/cancel`, `GET /admin/orders/:id/couriers`, `POST /admin/orders/:id/assign\|unassign`, `GET /admin/reports`, `POST /admin/reports/:id/resolve`, `GET /admin/audit`, `GET/PUT /admin/settings` |
-| Saúde | `GET /health` |
+| Saúde | `GET /health`, `GET /health/live` |
 
 ## Banco
 
@@ -197,5 +251,7 @@ banco vazio, cria os dados de demonstração.
 - Postgres e Redis do Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`,
   `REDIS_URL=${{Redis.REDIS_URL}}`.
 - `JWT_SECRET` forte, e `CORS_ORIGIN`/`APP_URL` com o endereço do site.
+- E-mail: `MAIL_PROVIDER=smtp`, `SMTP_URL` do provedor de produção e `MAIL_FROM` com domínio verificado,
+  nos dois serviços (quem envia é o worker).
 
 Todas as variáveis estão em [`.env.example`](.env.example).

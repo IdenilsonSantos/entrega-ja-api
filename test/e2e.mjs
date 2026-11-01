@@ -3,8 +3,11 @@
  *   API=http://localhost:3000/api node test/e2e.mjs
  * Para não esperar muito, suba a API com DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3.
  * O teste muda o banco (cria pedidos, convites, bloqueios): rode num banco de teste.
+ * Os e-mails são lidos no Mailpit: suba a API com MAIL_PROVIDER=smtp SMTP_URL=smtp://localhost:1025
+ * (o docker-compose já traz o Mailpit; a caixa de entrada fica em http://localhost:8025).
  */
 const API = process.env.API ?? 'http://localhost:3000/api';
+const MAILPIT = process.env.MAILPIT ?? 'http://localhost:8025';
 let failures = 0;
 const ok = (cond, msg, extra) => {
   console.log(`${cond ? '✔' : '✘'} ${msg}${!cond && extra !== undefined ? ` → ${JSON.stringify(extra).slice(0, 300)}` : ''}`);
@@ -19,7 +22,7 @@ async function http(method, path, token, body) {
     headers: { 'content-type': 'application/json', ...(token && { authorization: `Bearer ${token}` }) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return { status: res.status, data: await res.json().catch(() => null) };
+  return { status: res.status, headers: res.headers, data: await res.json().catch(() => null) };
 }
 const get = (p, t) => http('GET', p, t);
 const post = (p, t, b) => http('POST', p, t, b ?? {});
@@ -37,6 +40,17 @@ async function until(fn, ms = 15000, step = 300) {
   }
   return null;
 }
+
+/** Último e-mail para o endereço no Mailpit, com o texto (espera chegar, se precisar) */
+async function mailTo(to, subject) {
+  return until(async () => {
+    const list = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${to} subject:"${subject}"`)}`).then((r) => r.json());
+    const id = list.messages?.[0]?.ID;
+    return id ? fetch(`${MAILPIT}/api/v1/message/${id}`).then((r) => r.json()) : null;
+  }, 15000, 400);
+}
+const clearMail = () => fetch(`${MAILPIT}/api/v1/messages`, { method: 'DELETE' });
+const resetLink = (mail) => /\/redefinir-senha\/([\w-]+)/.exec(mail?.Text ?? '');
 
 /** Cliente SSE mínimo: guarda os eventos recebidos */
 function sse(token) {
@@ -305,6 +319,58 @@ const dev = await post('/push/devices', c1.token, { token: 'ExponentPushToken[te
 ok(dev.status === 201, 'celular registra o token do Expo');
 const test = await post('/push/test', C);
 ok(test.status === 200 && test.data.web === 1, 'notificação de teste enviada');
+
+// ─────────────────────────────────────────────────────────────
+section('Saúde');
+const health = await get('/health', null);
+ok(health.status === 200 && health.data.status === 'ok' && health.data.database && health.data.redis, 'API pronta: banco e Redis no ar', health.data);
+ok(health.data.workers?.alive >= 1, 'worker vivo (batimento no Redis)', health.data.workers);
+ok(['dispatch', 'push', 'mail'].every((q) => typeof health.data.queues?.[q]?.waiting === 'number'), 'tamanho das filas', health.data.queues);
+ok((await get('/health/live', null)).status === 200, 'liveness responde');
+
+// ─────────────────────────────────────────────────────────────
+section('Limite de requisições');
+const victim = `ninguem-${Date.now()}@demo.com`;
+const tries = [];
+for (let i = 0; i < 11; i++) tries.push(await post('/auth/login', null, { email: victim, password: 'chute' + i }));
+ok(tries.slice(0, 10).every((r) => r.status === 401), '10 senhas erradas na mesma conta: 401', tries.map((r) => r.status));
+const tooMany = tries[10];
+ok(tooMany.status === 429 && Number(tooMany.headers.get('retry-after')) > 0 && /Muitas tentativas/.test(tooMany.data.message), 'a 11ª é barrada com 429 e Retry-After', { status: tooMany.status, body: tooMany.data });
+ok((await post('/auth/login', null, { email: 'gerente@demo.com', password: '123456' })).status === 200, 'outra conta do mesmo IP continua entrando');
+const many = await Promise.all(Array.from({ length: 30 }, () => get('/health', null)));
+ok(many.every((r) => r.status === 200), 'healthcheck fica fora do limite');
+
+// ─────────────────────────────────────────────────────────────
+section('Esqueci minha senha');
+await clearMail();
+const forgotMsg = 'Se houver uma conta com este e-mail, enviamos um link para criar uma nova senha.';
+const unknown = await post('/auth/forgot-password', null, { email: `naoexiste-${Date.now()}@demo.com` });
+const forgot = await post('/auth/forgot-password', null, { email: 'cliente@demo.com' });
+ok(unknown.status === 202 && forgot.status === 202 && unknown.data.message === forgotMsg && forgot.data.message === forgotMsg, 'mesma resposta com ou sem conta (não revela quem tem cadastro)');
+const resetMail = await mailTo('cliente@demo.com', 'Redefinir sua senha');
+const link = resetLink(resetMail);
+ok(!!link && resetMail.HTML.includes(link[0]), 'e-mail com o link chega pela fila (SMTP)', resetMail?.Text);
+const resetToken = link?.[1];
+const check = await get(`/auth/reset-password/${resetToken}`, null);
+ok(check.status === 200 && /^cl•+@demo\.com$/.test(check.data.email), 'link válido mostra o e-mail mascarado', check.data);
+ok((await get('/auth/reset-password/' + 'x'.repeat(43), null)).status === 400, 'link inventado → 400');
+ok((await post('/auth/reset-password', null, { token: resetToken, password: '123' })).status === 400, 'senha curta → 400');
+const reset = await post('/auth/reset-password', null, { token: resetToken, password: 'nova-senha-1' });
+ok(reset.status === 200 && reset.data.token && reset.data.user.email === 'cliente@demo.com', 'nova senha salva e já entra', reset.data);
+ok((await get('/me', C)).status === 401, 'sessões antigas caem');
+ok((await post('/auth/login', null, { email: 'cliente@demo.com', password: '123456' })).status === 401, 'senha antiga não entra mais');
+ok((await post('/auth/reset-password', null, { token: resetToken, password: 'outra-senha' })).status === 400, 'link só vale uma vez');
+ok(!!(await mailTo('cliente@demo.com', 'Sua senha foi alterada')), 'aviso de senha alterada por e-mail');
+// pedir de novo invalida o link anterior
+await post('/auth/forgot-password', null, { email: 'gerente@demo.com' });
+const first = resetLink(await mailTo('gerente@demo.com', 'Redefinir sua senha'))?.[1];
+await clearMail();
+await post('/auth/forgot-password', null, { email: 'gerente@demo.com' });
+const second = resetLink(await mailTo('gerente@demo.com', 'Redefinir sua senha'))?.[1];
+ok(first && second && first !== second && (await get(`/auth/reset-password/${first}`, null)).status === 400 && (await get(`/auth/reset-password/${second}`, null)).status === 200, 'novo pedido invalida o link anterior');
+// volta a senha da demonstração
+const back = await post('/me/password', reset.data.token, { current: 'nova-senha-1', next: '123456' });
+ok(back.status === 200, 'cliente volta para a senha da demonstração');
 
 [ownerSse, custSse, c1Sse].forEach((s) => s.close());
 console.log(failures ? `\n${failures} falha(s)` : '\nTudo certo.');

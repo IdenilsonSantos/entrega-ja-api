@@ -3,9 +3,11 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthGuard } from './common/auth';
+import { RateLimitGuard } from './common/rate-limit';
 import { config } from './config';
 import { dataSourceOptions } from './infra/database/data-source';
 import { EventsModule } from './infra/events/events.module';
+import { MailModule } from './infra/mail/mail.service';
 import { QueueModule } from './infra/queue/queue.module';
 import { RedisModule } from './infra/redis/redis.module';
 import { StorageModule } from './infra/storage/storage.service';
@@ -33,6 +35,7 @@ import { StoresModule } from './modules/stores/stores.module';
     QueueModule,
     EventsModule,
     StorageModule,
+    MailModule,
     // transversais
     SettingsModule,
     NotificationsModule,
@@ -49,6 +52,10 @@ import { StoresModule } from './modules/stores/stores.module';
     EventsHttpModule,
     HealthModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  // a ordem importa: o limite vem antes do login, para uma enxurrada não chegar ao banco
+  providers: [
+    { provide: APP_GUARD, useClass: RateLimitGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
 export class AppModule {}

@@ -1,6 +1,7 @@
 # Backend completo: Postgres, Redis, migrations + seed, API e worker.
 #   docker compose up --build
 #   API em http://localhost:3000/api  (o site roda no projeto entrega-ja-web)
+#   E-mails enviados caem no Mailpit: http://localhost:8025
 # Mais réplicas: docker compose up -d --scale api=3 --scale worker=2 (coloque um balanceador na frente)
 
 x-env: &env
@@ -13,6 +14,11 @@ x-env: &env
   VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
   VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:contato@entregaja.dev}
   EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+  # Mailpit por padrão; para o Resend: MAIL_PROVIDER=resend RESEND_API_KEY=re_...
+  MAIL_PROVIDER: ${MAIL_PROVIDER:-smtp}
+  MAIL_FROM: ${MAIL_FROM:-Entrega Já <nao-responda@entregaja.dev>}
+  SMTP_URL: ${SMTP_URL:-smtp://mailpit:1025}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
 
 services:
   postgres:
@@ -28,6 +34,11 @@ services:
     volumes: [redisdata:/data]
     ports: ['6379:6379']
     healthcheck: { test: ['CMD', 'redis-cli', 'ping'], interval: 3s, retries: 20 }
+
+  # caixa de entrada de mentira: recebe por SMTP e mostra os e-mails em http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ['1025:1025', '8025:8025']
 
   # migrations + contas de demonstração, uma vez antes da API (idempotente)
   setup:
@@ -54,6 +65,7 @@ services:
     depends_on:
       setup: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+      mailpit: { condition: service_started }
 
 volumes:
   pgdata:

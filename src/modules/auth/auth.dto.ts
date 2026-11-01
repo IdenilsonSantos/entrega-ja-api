@@ -33,5 +33,14 @@ export class ChangePasswordDto {
   @IsString() @MinLength(6, { message: 'A nova senha precisa ter pelo menos 6 caracteres' }) @MaxLength(100) next: string;
 }
 
+export class ForgotPasswordDto {
+  @Transform(lower) @IsEmail({}, { message: 'E-mail inválido' }) @MaxLength(160) email: string;
+}
+
+export class ResetPasswordDto {
+  @IsString() @Length(20, 100) token: string;
+  @IsString() @MinLength(6, { message: 'A nova senha precisa ter pelo menos 6 caracteres' }) @MaxLength(100) password: string;
+}
+
 export const PLATE = /^[A-Z]{3}-?\d[A-Z0-9]\d{2}$/;
 export const plateMatch = Matches(PLATE, { message: 'Placa inválida (ex.: ABC1D23)' });
