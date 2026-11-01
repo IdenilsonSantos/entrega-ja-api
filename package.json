@@ -10,6 +10,7 @@
     "seed": "node dist/seed.js",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/infra/database/data-source.ts src/infra/database/migrations/$npm_config_name",
     "migration:run": "node dist/infra/database/migrate.js",
+    "test:unit": "node --test \"test/unit/**/*.test.mjs\"",
     "test:e2e": "node test/e2e.mjs"
   },
   "dependencies": {

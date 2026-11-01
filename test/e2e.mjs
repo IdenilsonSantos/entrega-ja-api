@@ -321,6 +321,31 @@ const test = await post('/push/test', C);
 ok(test.status === 200 && test.data.web === 1, 'notificação de teste enviada');
 
 // ─────────────────────────────────────────────────────────────
+section('Horário de funcionamento');
+const today = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short' }).format(new Date()));
+const patchStore = (token, body) => http('PATCH', `/merchant/stores/${burger.id}`, token, body);
+const closedNow = await patchStore(O, { openingHours: [{ day: (today + 3) % 7, open: '09:00', close: '10:00' }] });
+ok(closedNow.status === 200 && closedNow.data.isOpen === true && closedNow.data.openNow === false && closedNow.data.opensAt, 'fora do horário: botão ligado, mas a loja não recebe pedidos', closedNow.data);
+const shown = (await get(`/stores/${burger.id}`, null)).data;
+ok(shown.openNow === false && new Date(shown.opensAt).getTime() > Date.now() && shown.openingHours.length === 1, 'vitrine mostra fechada e quando abre', shown);
+const listed = (await get('/stores?lat=-23.5551&lng=-46.6527', null)).data;
+const firstClosed = listed.findIndex((x) => !x.openNow);
+ok(listed.slice(firstClosed).every((x) => !x.openNow) && listed.find((x) => x.name === 'Burger da Vila').openNow === false, 'lojas fechadas vão para o fim da lista', listed.map((x) => [x.name, x.openNow]));
+const closedOrder = await post('/orders', C, orderBody);
+ok(closedOrder.status === 400 && /fechada/.test(closedOrder.data.message), 'pedido fora do horário é recusado', closedOrder.data);
+const allDay = await patchStore(O, { openingHours: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, open: '00:00', close: '00:00' })) });
+ok(allDay.data.openNow === true && allDay.data.closesAt === null, '24 horas: aberta, sem hora de fechar', allDay.data);
+const paused = await post(`/merchant/stores/${burger.id}/open`, AT, { isOpen: false });
+ok(paused.status === 200 && (await get(`/stores/${burger.id}`, null)).data.openNow === false, 'botão desligado pausa a loja mesmo no horário');
+await post(`/merchant/stores/${burger.id}/open`, AT, { isOpen: true });
+ok((await patchStore(O, { openingHours: [{ day: 1, open: '25:00', close: '10:00' }] })).status === 400, 'hora inválida → 400');
+ok((await patchStore(O, { openingHours: [{ day: 1, open: '10:00', close: '10:00' }] })).status === 400, 'abertura igual ao fechamento → 400');
+ok((await patchStore(O, { timezone: 'Marte/Base' })).status === 400, 'fuso inválido → 400');
+ok((await patchStore(AT, { openingHours: null })).status === 403, 'atendente não muda o horário');
+const cleared = await patchStore(M, { openingHours: null });
+ok(cleared.status === 200 && cleared.data.openingHours === null && cleared.data.openNow === true, 'gerente tira o horário e volta a valer só o botão', cleared.data);
+
+// ─────────────────────────────────────────────────────────────
 section('Saúde');
 const health = await get('/health', null);
 ok(health.status === 200 && health.data.status === 'ok' && health.data.database && health.data.redis, 'API pronta: banco e Redis no ar', health.data);

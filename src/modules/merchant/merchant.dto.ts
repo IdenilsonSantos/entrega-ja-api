@@ -1,12 +1,20 @@
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsEnum, IsInt, IsLatitude, IsLongitude, IsNumber, IsOptional,
-  IsString, IsUUID, Length, Max, MaxLength, Min, ValidateNested,
+  IsString, IsUUID, Length, Matches, Max, MaxLength, Min, NotEquals, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { StoreRole } from './store-member.entity';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 const lower = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toLowerCase() : value);
+
+const HHMM = Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'Use o formato HH:MM' });
+
+export class OpeningRangeDto {
+  @IsInt() @Min(0) @Max(6) day: number;
+  @IsString() @HHMM open: string;
+  @IsString() @HHMM close: string;
+}
 
 export class StoreDto {
   @Transform(trim) @IsString() @Length(2, 120) name: string;
@@ -34,6 +42,10 @@ export class UpdateStoreDto {
   @IsOptional() @IsInt() @Min(0) @Max(100000) minOrderCents?: number;
   @IsOptional() @IsInt() @Min(5) @Max(180) prepTimeMin?: number;
   @IsOptional() @IsNumber() @Min(1) @Max(20) deliveryRadiusKm?: number;
+  /** null tira o horário (volta a valer só o botão) */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsArray() @ArrayMaxSize(28) @ValidateNested({ each: true }) @Type(() => OpeningRangeDto)
+  openingHours?: OpeningRangeDto[] | null;
+  @IsOptional() @IsString() @MaxLength(40) @NotEquals('') timezone?: string;
 }
 
 export class OpenDto {

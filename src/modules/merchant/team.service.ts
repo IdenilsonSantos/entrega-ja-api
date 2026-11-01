@@ -5,6 +5,7 @@ import { DataSource, IsNull, MoreThan } from 'typeorm';
 import { config } from '../../config';
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors';
 import { NotificationsService } from '../notifications/notifications.service';
+import { openState } from '../stores/opening-hours';
 import { Store } from '../stores/store.entity';
 import { Role, User } from '../users/user.entity';
 import { PERMISSIONS, StoreInvite, StoreMember, StoreRole } from './store-member.entity';
@@ -38,6 +39,7 @@ export class TeamService {
       status: m.store.status,
       statusReason: m.store.statusReason,
       isOpen: m.store.isOpen,
+      openNow: openState(m.store).openNow,
       role: m.role,
       permissions: PERMISSIONS[m.role],
     }));

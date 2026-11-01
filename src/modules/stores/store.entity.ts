@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from '../users/user.entity';
+import type { OpeningRange } from './opening-hours';
 
 /**
  * PENDING   → criada pelo lojista, aguardando aprovação da plataforma (não aparece para clientes)
@@ -69,9 +70,17 @@ export class Store {
   @Column({ type: 'double precision', default: 6 })
   deliveryRadiusKm: number;
 
-  /** A loja abre e fecha pelo painel */
+  /** Botão de abrir e fechar do painel. Com horário definido, funciona como pausa (ver opening-hours.ts) */
   @Column({ default: false })
   isOpen: boolean;
+
+  /** Horário de funcionamento por dia da semana; null = só o botão */
+  @Column({ type: 'jsonb', nullable: true })
+  openingHours: OpeningRange[] | null;
+
+  /** Fuso do horário de funcionamento */
+  @Column({ length: 40, default: 'America/Sao_Paulo' })
+  timezone: string;
 
   @Column({ type: 'enum', enum: StoreStatus, enumName: 'store_status', default: StoreStatus.PENDING })
   status: StoreStatus;

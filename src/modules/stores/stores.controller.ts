@@ -7,6 +7,7 @@ import { Public } from '../../common/auth';
 import { notFound } from '../../common/errors';
 import { distanceKm, round } from '../../common/geo';
 import { MenuCategory, ModerationStatus, Product } from '../catalog/catalog.entity';
+import { openState, OpeningRange } from './opening-hours';
 import { Store, StoreStatus } from './store.entity';
 
 class NearbyQuery {
@@ -30,7 +31,9 @@ const publicStore = (s: Store, km?: number) => ({
   minOrderCents: s.minOrderCents,
   prepTimeMin: s.prepTimeMin,
   deliveryRadiusKm: s.deliveryRadiusKm,
-  isOpen: s.isOpen,
+  // isOpen continua por compatibilidade; o que vale para pedir é openNow
+  ...(({ openNow, opensAt, closesAt }) => ({ isOpen: openNow, openNow, opensAt, closesAt }))(openState(s)),
+  openingHours: s.openingHours as OpeningRange[] | null,
   ratingAvg: round(s.ratingAvg, 1),
   ratingCount: s.ratingCount,
   ...(km !== undefined && { distanceKm: round(km, 1) }),
@@ -56,10 +59,9 @@ export class StoresController {
     }
     const rows = await qb.getMany();
     return rows
-      .map((s) => ({ s, km: distanceKm(q, s) }))
-      .filter(({ s, km }) => km <= s.deliveryRadiusKm)
-      .sort((a, b) => Number(b.s.isOpen) - Number(a.s.isOpen) || a.km - b.km)
-      .map(({ s, km }) => publicStore(s, km));
+      .map((s) => publicStore(s, distanceKm(q, s)))
+      .filter((s) => s.distanceKm! <= s.deliveryRadiusKm)
+      .sort((a, b) => Number(b.openNow) - Number(a.openNow) || a.distanceKm! - b.distanceKm!);
   }
 
   @Get('categories')

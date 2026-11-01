@@ -13,6 +13,7 @@ import { DispatchService } from '../dispatch/dispatch.service';
 import { PresenceService } from '../dispatch/presence.service';
 import { StoreAccessService } from '../merchant/store-access.service';
 import { SettingsService } from '../settings/settings.service';
+import { openState } from '../stores/opening-hours';
 import { Store, StoreStatus } from '../stores/store.entity';
 import { OrderCore } from './order-core.service';
 import { ACTIVE_STATUSES, DELIVERY_VISIBLE, FINAL_STATUSES, Order, OrderItem, OrderStatus, PaymentMethod } from './order.entity';
@@ -37,7 +38,7 @@ export class OrdersService {
   async create(customer: AuthUser, dto: CreateOrderDto) {
     const store = await this.ds.getRepository(Store).findOneBy({ id: dto.storeId });
     if (!store || store.status !== StoreStatus.ACTIVE) throw notFound('Loja');
-    if (!store.isOpen) throw badRequest('A loja está fechada agora');
+    if (!openState(store).openNow) throw badRequest('A loja está fechada agora');
 
     const dest = await this.destination(customer.id, dto);
     const km = distanceKm(store, { lat: dest.deliveryLat, lng: dest.deliveryLng });

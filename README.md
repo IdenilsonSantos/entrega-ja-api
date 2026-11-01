@@ -1,8 +1,8 @@
 # Entrega Já · API
 
 Backend da plataforma de delivery: pedidos, despacho automático de entregadores, tempo real,
-notificações (central, web push e push no celular), lojas com equipe, recuperação de senha por
-e-mail, limite de requisições e moderação.
+notificações (central, web push e push no celular), lojas com equipe e horário de funcionamento,
+recuperação de senha por e-mail, limite de requisições e moderação.
 
 **Stack:** NestJS 11 · TypeORM · PostgreSQL 16 · Redis 7 (GEO, pub/sub, Streams) · BullMQ · SSE
 
@@ -44,6 +44,8 @@ Contas de demonstração (senha `123456`):
 ## Testes
 
 ```bash
+npm run build && npm run test:unit   # regras puras (horário de funcionamento)
+
 # ponta a ponta: API com ofertas curtas e e-mail indo para o Mailpit (docker compose up -d mailpit)
 DISPATCH_OFFER_TTL_SEC=6 DISPATCH_RETRY_DELAY_MS=1500 DISPATCH_ALERT_AFTER=3 \
   MAIL_PROVIDER=smtp SMTP_URL=smtp://localhost:1025 npm start
@@ -51,7 +53,8 @@ API=http://localhost:3000/api npm run test:e2e
 ```
 
 O teste (`test/e2e.mjs`) cobre ponta a ponta o pedido com despacho, a atribuição manual,
-a equipe e as permissões, o perfil do entregador, a moderação, o push, a saúde, o limite de requisições e a recuperação de senha (lendo o e-mail no Mailpit). Ele altera
+a equipe e as permissões, o perfil do entregador, a moderação, o push, o horário de funcionamento,
+a saúde, o limite de requisições e a recuperação de senha (lendo o e-mail no Mailpit). Ele altera
 o banco e usa os limites de login: rode num banco e num Redis de teste.
 
 ## Organização
@@ -72,7 +75,7 @@ src/
     users/         entidade de conta e papéis
     couriers/      perfil e veículo, turno (online), localização, ofertas, entregas, ganhos
     addresses/     endereços da cliente
-    stores/        vitrine pública (lojas perto, cardápio)
+    stores/        vitrine pública (lojas perto, cardápio), horário de funcionamento
     merchant/      lojas do lojista, equipe e convites, permissões
     catalog/       cardápio (seções, produtos, opções)
     orders/        ciclo do pedido, visões por perfil, linha do tempo
@@ -123,6 +126,21 @@ PENDING ─loja aceita→ PREPARING ─loja marca pronto→ READY ─retira→ P
 - O preço é sempre calculado no servidor com o cardápio atual; o pedido guarda uma cópia dos itens.
 - A entrega só é confirmada com o código de 4 dígitos que a cliente vê no app.
 - Toda mudança vai para a linha do tempo do pedido (`order_events`).
+
+## Horário de funcionamento
+
+Em **Loja → Dados** (`PATCH /merchant/stores/:id` com `openingHours` e `timezone`), cada loja define
+faixas por dia da semana (`{ day: 0..6, open: "HH:MM", close: "HH:MM" }`, 0 = domingo), no fuso
+da loja (padrão `America/Sao_Paulo`):
+
+- um dia pode ter várias faixas (almoço e jantar);
+- fechamento menor que a abertura passa da meia-noite (`18:00`–`02:00`); `00:00`–`00:00` é o dia todo;
+- `openingHours: null` tira o horário e volta a valer só o botão.
+
+A loja recebe pedidos quando **o botão está ligado e está dentro do horário**. Com horário, o dono
+deixa o botão ligado e a loja abre e fecha sozinha; desligar o botão pausa no meio do expediente.
+A vitrine devolve `openNow`, `opensAt` (fechada pelo horário) e `closesAt` (aberta pelo horário);
+lojas fechadas vão para o fim da lista. A regra fica em `stores/opening-hours.ts`.
 
 ## Despacho
 
