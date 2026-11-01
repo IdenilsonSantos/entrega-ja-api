@@ -8,6 +8,8 @@ recuperação de senha por e-mail, limite de requisições e moderação.
 
 Projetos relacionados: `entrega-ja-web` (site) e `entrega-ja-app` (app do entregador).
 
+**Documentação do sistema** (visão geral, arquitetura, fluxos, operação e testes): [`docs/`](docs/README.md).
+
 ## Rodar
 
 Com Docker (Postgres, Redis, Mailpit, migrations, seed, API e worker):
